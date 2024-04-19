@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CASA - Home Search</title>
+    <style>
+        /* General styles */
+        * { box-sizing: border-box; }
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            background-color: #121212; /* Dark background */
+            overflow: hidden; /* Hide the moving image when it goes out of bounds */
+        }
+        #background-ad {
+            position: fixed; /* Fixed position */
+            top: 50%; /* Center vertically */
+            left: 0;
+            width: 300px; /* Width of the image */
+            height: 200px; /* Height of the image */
+            background-image: url("https://images.squarespace-cdn.com/content/v1/62187da97bc36e351d2ac925/565f3852-50b1-4fe8-9517-0c79573835a8/ad.jpg?format=750w"); /* Reference to your local PNG file */
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            animation: moveAd 10s linear infinite;
+        }
+        @keyframes moveAd {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100vw); }
+        }
+        body.stop-background-animation #background-ad {
+            animation: none;
+            display: none; /* Hide the ad once the search is performed */
+        }
+
+        /* Title styles */
+        #title {
+            background-color: rgba(0, 0, 0, 0.8); /* Semi-transparent black background for the title */
+            color: #00ffff; /* Cyan color for the title */
+            text-align: center;
+            padding: 20px 0;
+            margin-bottom: 30px;
+            font-size: 2em;
+            display: inline-block; /* For inline caption */
+        }
+
+        /* Animated caption styles */
+        #animated-caption {
+            color: #00ffff; /* Cyan color for the caption */
+            font-size: 0.5em; /* Smaller font size for the caption */
+            white-space: nowrap; /* Ensures the text doesn't wrap */
+            overflow: hidden; /* Hides the overflow text */
+            display: inline-block; /* Aligns with the title */
+            vertical-align: bottom; /* Aligns vertically with the title */
+            margin-left: 10px;
+        }
+
+        /* Search container styles */
+        #search-container {
+            z-index: 2; /* Ensures it stays above the map */
+            position: relative;
+            padding: 20px;
+            margin: 0 auto; /* Center align and add margin at the bottom */
+            display: flex;
+            gap: 10px;
+            width: 100%; /* Ensure full width */
+            max-width: 800px; /* Set maximum width */
+            animation: glowing 2s ease-in-out infinite alternate; /* Add glowing effect */
+        }
+
+        /* Search box styles */
+        #searchBox { 
+            flex-grow: 1; /* Allows the search box to grow and take available space */
+            padding: 10px;
+            background-color: #333;
+            border: none;
+            color: white;
+        }
+
+        /* Submit button styles */
+        #submitBtn { 
+            padding: 10px;
+            background-color: #00ffff;
+            color: black;
+            border: none;
+            cursor: pointer;
+        }
+
+        /* Results container styles */
+        #results { 
+            margin-top: 10px;
+            display: none; /* Initially hidden */
+            flex: 1;
+            padding: 0 20px; /* Add padding on the sides */
+        }
+
+        /* Individual message styles */
+        .message strong a:link { /* Styles for normal, unvisited links */
+           text-decoration: underline;
+           color: #87e9fa; /* Sky blue color */
+        } 
+
+        .message strong a:visited { /* Styles for visited links */
+           color: #db70d9; /* Light purple color */
+        }  
+        .message { 
+            flex: 1;
+            min-width: calc(50% - 20px);
+            margin-bottom: 20px;
+            background-color: #333;
+            padding: 10px;
+            border-radius: 5px;
+            transition: transform 0.3s;
+            cursor: pointer;
+            color: white; /* Ensure text is white for readability */
+        }
+
+        /* Hover effect for messages */
+        .message:hover {
+            transform: scale(1.03);
+        }
+
+        /* Styles for listing images */
+        .listing-image {
+           display: none; /* Hide the listing image */
+        }
+
+        /* Keyframes for glowing effect */
+        @keyframes glowing {
+            0% { box-shadow: 0 0 5px #00ffff; }
+            100% { box-shadow: 0 0 20px #00ffff; }
+        }
+
+        /* Map and listings container styles */
+        #map {
+            width: 50%;
+            height: calc(100vh - 100px); /* Adjust height to take up available space minus header */
+        }
+
+        .listings-container {
+            max-height: 80vh; /* Adjust as needed */
+            overflow-y: auto;
+            width: 50%;
+            overflow-y: auto; /* Enable scrolling for listings */
+            padding: 20px;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div id="background-ad"></div> 
+    <div id="title">CASA <span id="animated-caption"></span></div>
+
+    <div id="search-container">
+        <input type="text" id="searchBox" placeholder="Enter your search query" onkeyup="searchOnEnter(event)">
+        <button id="submitBtn" onclick="performSearch()">Search</button>
+    </div>
+
+    <div id="results">
+        <div id="map"></div>
+        <div class="listings-container" id="listings"></div>
+    </div>
+
+    <script>
+        let map;
+        let mapLoaded = false;
+        let markers = []; // Array to store markers
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 8,
+                center: { lat: -34.397, lng: 150.644 } // Default center of the map
+            });
+            mapLoaded = true;
+        }
+
+        function performSearch() {
+            document.body.classList.add('stop-background-animation');
+            if (!mapLoaded) {
+                alert('Map is not loaded yet. Please wait.');
+                return;
+            }
+
+            document.getElementById('results').style.display = 'flex'; // Show the results section
+            var searchBox = document.getElementById('searchBox');
+            var searchQuery = searchBox.value;
+            var apiUrl = 'http://localhost:8080/api/homesearch/' + encodeURIComponent(searchQuery);
+            var listingsContainer = document.getElementById('listings');
+            listingsContainer.innerHTML = ''; // Clear previous listings
+
+            // Clear previous markers from the map
+            clearMarkers();
+
+            fetch(apiUrl)
+                .then(response => response.json())
+                .then(data => {
+                    // Limit to top 10 results
+                    data = data.slice(0, 10);
+                    processGeocodingAndListings(data);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                });
+        }
+
+        function processGeocodingAndListings(data) {
+            var bounds = new google.maps.LatLngBounds();
+            var geocoder = new google.maps.Geocoder();
+            var count = 0;
+
+            function geocodeNext() {
+                if (count < data.length) {
+                    var item = data[count];
+                    geocoder.geocode({ 'address': item.address }, (results, status) => {
+                        if (status === 'OK') {
+                            var position = results[0].geometry.location;
+                            map.setCenter(position);
+                            var marker = new google.maps.Marker({
+                                map: map,
+                                position: position,
+                                label: (count + 1).toString()
+                            });
+                            bounds.extend(position);
+                            map.fitBounds(bounds);
+                            google.maps.event.addListener(marker, 'click', function() {
+                                var panorama = map.getStreetView();
+                                panorama.setPosition(position);
+                                panorama.setPov({
+                                    heading: 265,
+                                    pitch: 0
+                                });
+                                panorama.setVisible(true);
+                            });
+                            // Continue with the next geocoding
+                            count++;
+                            markers.push(marker); // Store the marker in the markers array
+                            geocodeNext();
+                        } else {
+                            console.error('Geocode was not successful for the following reason: ' + status);
+                        }
+                    });
+                } else {
+                    // All markers are added, now add listings
+                    addListings(data);
+                }
+            }
+
+            // Start geocoding
+            geocodeNext();
+        }
+
+        function addListings(data) {
+            var listingsContainer = document.getElementById('listings');
+            data.forEach((item, index) => {
+                if (index < 10) { // Limit to top 10 results for listings
+                    // Create a clickable message div for each listing
+                    var message = document.createElement('div');
+                    message.className = 'message';
+                    message.onclick = function() {
+                        // Open Google search for the address in a new tab
+                        window.open('https://www.google.com/search?q=' + encodeURIComponent(item.address), '_blank');
+                    };
+                    message.innerHTML =  `
+                       <strong>${(index + 1)}. Address:</strong> <a href="https://www.google.com/search?q=${encodeURIComponent(item.address)}" target="_blank">${item.address}</a><br>
+                       <strong>Description:</strong> ${item.propertyDescription}<br>
+                     `;
+                    
+                    listingsContainer.appendChild(message);
+                }
+            });
+        }
+
+        function clearMarkers() {
+            // Loop through all existing markers and remove them from the map
+            for (let i = 0; i < markers.length; i++) {
+                markers[i].setMap(null);
+            }
+            // Clear the markers array
+            markers = [];
+        }
+
+        function searchOnEnter(event) {
+            if (event.key === 'Enter') {
+                performSearch();
+            }
+        }
+
+        // Function to animate the caption
+        function animateCaption() {
+            const text = "Find your perfect home!";
+            let i = 0;
+            const speed = 150; // Speed of typing in milliseconds
+
+            function typeWriter() {
+                if (i < text.length) {
+                    document.getElementById("animated-caption").innerHTML += text.charAt(i);
+                    i++;
+                    setTimeout(typeWriter, speed);
+                }
+            }
+
+            typeWriter();
+        }
+
+        // Call the function when the page loads
+        window.onload = animateCaption;
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAMzaozL0U58wIBXbZfDmVkzdM2twiHgOo&callback=initMap"></script>
+</body>
+</html>
